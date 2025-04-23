@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+import platform
+import psutil
+import os
+import sys
+import time
+import uuid  # Added for execution ID
+from colorama import init, Fore, Style
+import re
+import subprocess
+
+# Initialize colorama for colored output
+init()
+
+# ASCII art for LxOS
+
+LXOS_LOGO = [
+    "          ▓▓▓▓▓▓▓▓▓▒▒          ",
+    "       ▓▓▓▓▓▒▓▓▓▓▓▓▒▒▒▒▒       ",
+    "    ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▓    ",
+    "   ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒   ",
+    "  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒  ",
+    " ▓▓▓▓▓▓▓▓▓▓▓▓▓▓██▓▓▓▓▓▓▓▒▒▒▒▒▒ ",
+    "▓▓▓▓▓▓▓▓████████████████▓▒▓▓▒▒▒",
+    "▓▓▓▓▓█▒░░░░░████████░░░░░▓█▓▓▓▓",
+    "▓▓▓██░░░███▓███████░███▓▓░▒██▓▓",
+    "▓███░░██████████████████░▒███▓",
+    "██████▓████▒▒▒▒▒▒▒▒████▓██████",
+    " ██████████████▓▓█████████████ ",
+    "  ███████████░░░░░▓██████████  ",
+    "   ██████░░░░░░░░░░░░░██████   ",
+    "    ███░░░░░░░░░░░░░░░░░███    ",
+    "       ░░░░░░░░░░░░░░░░░       ",
+    "          ▒░░░░░░░░░▒          ",
+]
+def get_visible_length(text):
+    """Calculate visible length, ignoring colorama control codes"""
+    control_code = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
+    return len(control_code.sub('', text))
+
+def get_os_info():
+    """Detect LxOS from /etc/os-release"""
+    try:
+        if os.path.exists("/etc/os-release"):
+            with open("/etc/os-release", "r") as f:
+                os_info = {}
+                for line in f:
+                    if line.strip() and '=' in line:
+                        key, value = line.strip().split("=", 1)
+                        os_info[key] = value.strip('"')
+                name = os_info.get("NAME", "LxOS")
+                version = os_info.get("VERSION", "")
+                return "LxOS", f"{name} {version}".strip()
+        else:
+            return "Unknown", platform.system()
+    except:
+        return "Unknown", platform.system()
+
+def get_kernel():
+    """Get kernel version"""
+    return platform.release().split('-')[0]  # Trim -generic
+
+def get_cpu():
+    """Get CPU model"""
+    try:
+        with open("/proc/cpuinfo", "r") as f:
+            for line in f:
+                if "model name" in line:
+                    return line.split(":")[1].strip()
+    except:
+        return "Unknown"
+
+def get_memory():
+    """Get memory usage with minimal block graph"""
+    mem = psutil.virtual_memory()
+    used = mem.used // (1024 * 1024)
+    total = mem.total // (1024 * 1024)
+    percent = (used / total) * 100
+    bar_length = 10
+    filled = int(bar_length * percent / 100)
+    bar = '▰' * filled + '▱' * (bar_length - filled)
+    return f"{used}M/{total}M [{bar}]"
+
+def get_disk_usage():
+    """Get disk usage with minimal block graph"""
+    try:
+        disk = psutil.disk_usage('/')
+        used = disk.used // (1024 ** 3)  # GB
+        total = disk.total // (1024 ** 3)  # GB
+        percent = disk.percent
+        bar_length = 10
+        filled = int(bar_length * percent / 100)
+        bar = '▰' * filled + '▱' * (bar_length - filled)
+        return f"{used}G/{total}G [{bar}]"
+    except:
+        return None
+
+def get_battery():
+    """Get battery status with minimal block graph"""
+    try:
+        battery = psutil.sensors_battery()
+        if battery:
+            percent = int(battery.percent)  # Whole number
+            bar_length = 10
+            filled = int(bar_length * percent / 100)
+            bar = '▰' * filled + '▱' * (bar_length - filled)
+            return f"{percent}% [{bar}]"
+        return None
+    except:
+        return None
+
+def get_uptime():
+    """Get system uptime (minimal format)"""
+    uptime_seconds = time.time() - psutil.boot_time()
+    days = int(uptime_seconds // (24 * 3600))
+    hours = int((uptime_seconds % (24 * 3600)) // 3600)
+    minutes = int((uptime_seconds % 3600) // 60)
+    if days > 0:
+        return f"{days}d {hours}h {minutes}m"
+    return f"{hours}h {minutes}m"
+
+def get_packages():
+    """Get number of installed packages for Debian, Arch, Gentoo"""
+    try:
+        if os.path.exists("/usr/bin/dpkg"):
+            result = subprocess.run(["dpkg", "--list"], capture_output=True, text=True)
+            return str(len([line for line in result.stdout.splitlines() if line.startswith("ii")]))
+        elif os.path.exists("/usr/bin/pacman"):
+            result = subprocess.run(["pacman", "-Q"], capture_output=True, text=True)
+            return str(len(result.stdout.splitlines()))
+        elif os.path.exists("/usr/bin/emerge"):
+            result = subprocess.run(["qlist", "-I"], capture_output=True, text=True)
+            return str(len(result.stdout.splitlines()))
+        return "N/A"
+    except:
+        return "N/A"
+
+def get_terminal():
+    """Get current terminal"""
+    return os.environ.get("TERM", "Unknown")
+
+def get_cpu_usage_graph():
+    """Generate a minimal block CPU usage graph"""
+    cpu_percent = psutil.cpu_percent(interval=0.1)
+    bar_length = 10
+    filled = int(bar_length * cpu_percent / 100)
+    bar = '▰' * filled + '▱' * (bar_length - filled)
+    return f"{cpu_percent:.1f}% [{bar}]"
+
+def print_boxed_section(title, items, terminal_width):
+    """Print a fully boxed section with centered text and static width"""
+    fixed_width = 40  # Static box width
+    border_width = fixed_width + 2  # Including borders
+    
+    # Filter out unavailable items
+    valid_items = [(label, value) for label, value in items if (value() if callable(value) else value) not in (None, "N/A")]
+    
+    if not valid_items:
+        return
+    
+    # Top border
+    top_border = f"╔{'═' * fixed_width}╗"
+    print(f"{' ' * ((terminal_width - border_width) // 2)}{top_border}")
+    
+    # Title (centered)
+    title_padding = (fixed_width - len(title)) // 2
+    print(f"{' ' * ((terminal_width - border_width) // 2)}║{' ' * title_padding}{Fore.CYAN}{title}{Style.RESET_ALL}{' ' * (fixed_width - len(title) - title_padding)}║")
+    
+    # Separator
+    print(f"{' ' * ((terminal_width - border_width) // 2)}╠{'═' * fixed_width}╣")
+    
+    # Items (centered)
+    for label, value in valid_items:
+        value_text = value() if callable(value) else value
+        line = f"{label}{Style.RESET_ALL} {value_text}"
+        line_width = get_visible_length(line)
+        padding_left = (fixed_width - line_width) // 2
+        padding_right = fixed_width - line_width - padding_left
+        print(f"{' ' * ((terminal_width - border_width) // 2)}║{' ' * padding_left}{line}{' ' * padding_right}║")
+    
+    # Bottom border
+    bottom_border = f"╚{'═' * fixed_width}╝"
+    print(f"{' ' * ((terminal_width - border_width) // 2)}{bottom_border}")
+    print()
+
+def main():
+    """Main function to display fetch-like info"""
+    # Hidden execution ID to debug multiple runs
+    execution_id = str(uuid.uuid4())
+    print(f"<!-- lxfetch execution ID: {execution_id} -->")
+    
+    os_name, os_version = get_os_info()
+
+    # System info organized into categories (Shell removed)
+    system_info = [
+        (f"{Fore.CYAN}󰍹 OS", lambda: os_version),
+        (f"{Fore.CYAN}󰌽 Kernel", get_kernel),
+        (f"{Fore.CYAN} Terminal", get_terminal),
+        (f"{Fore.CYAN}󱑂 Uptime", get_uptime),
+        (f"{Fore.CYAN}󰏓 Packages", get_packages),
+    ]
+    hardware_info = [
+        (f"{Fore.CYAN} CPU", get_cpu_usage_graph),
+        (f"{Fore.CYAN}󰍛 Memory", get_memory),
+        (f"{Fore.CYAN} Disk", get_disk_usage),
+        (f"{Fore.CYAN}󰁹 Battery", get_battery),
+    ]
+
+    # Clear screen and display static output
+    os.system('clear' if os.name == 'posix' else 'cls')
+    terminal_width = os.get_terminal_size().columns
+
+    # Display ASCII art (single frame, no effects)
+    for logo_line in LXOS_LOGO:
+        colored_line = f"{Fore.CYAN}{logo_line}{Style.RESET_ALL}"
+        padding = (terminal_width - get_visible_length(logo_line)) // 2
+        print(" " * padding + colored_line)
+
+    print()  # Space between art and info
+
+    # Display categorized system info
+    print_boxed_section("System", system_info, terminal_width)
+    print_boxed_section("Hardware", hardware_info, terminal_width)
+
+    sys.stdout.flush()  # Ensure immediate rendering
+
+    # Play a subtle beep sound when done
+    os.system('echo -e "\a"')
+
+if __name__ == "__main__":
+    main()
